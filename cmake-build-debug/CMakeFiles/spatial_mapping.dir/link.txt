@@ -1,0 +1,1 @@
+/usr/bin/c++  -g   CMakeFiles/spatial_mapping.dir/src/GLObject.cpp.o CMakeFiles/spatial_mapping.dir/src/main.cpp.o CMakeFiles/spatial_mapping.dir/src/Shader.cpp.o  -o spatial_mapping 
