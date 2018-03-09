@@ -1,1 +1,4 @@
 .idea
+build/mesh_gen.mtl
+build/mesh_gen_material0000_map_Kd.png
+build/mesh_gen.obj
