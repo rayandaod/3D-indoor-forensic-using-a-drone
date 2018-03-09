@@ -1,3 +1,0 @@
-/home/rayandaod/Documents/spatial mapping/build/CMakeFiles/rebuild_cache.dir
-/home/rayandaod/Documents/spatial mapping/build/CMakeFiles/edit_cache.dir
-/home/rayandaod/Documents/spatial mapping/build/CMakeFiles/ZED_Spatial_Mapping.dir
