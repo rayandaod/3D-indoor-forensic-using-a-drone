@@ -20,19 +20,19 @@
 #include <iostream>
 #include <cmath>
 
-// Definitions due to some bugs in VS
-#define  GLUT_DOUBLE 0x0002
-#define  GLUT_RGBA 0x0000
-
-#define CV_CN_SHIFT 3
-#define CV_DEPTH_MAX (1 << CV_CN_SHIFT)
-#define CV_MAT_DEPTH_MASK (CV_DEPTH_MAX - 1)
-#define CV_MAT_DEPTH(flags) ((flags) & CV_MAT_DEPTH_MASK)
-#define CV_MAKETYPE(depth,cn) (CV_MAT_DEPTH(depth) + (((cn)-1) << CV_CN_SHIFT))
-#define CV_8U 0
-#define CV_8UC3 CV_MAKETYPE(CV_8U,3)
-#define CV_8UC1 CV_MAKETYPE(CV_8U,1)
-#define CV_8UC4 CV_MAKETYPE(CV_8U,4)
+//// Definitions due to some bugs in VS
+//#define  GLUT_DOUBLE 0x0002
+//#define  GLUT_RGBA 0x0000
+//
+//#define CV_CN_SHIFT 3
+//#define CV_DEPTH_MAX (1 << CV_CN_SHIFT)
+//#define CV_MAT_DEPTH_MASK (CV_DEPTH_MAX - 1)
+//#define CV_MAT_DEPTH(flags) ((flags) & CV_MAT_DEPTH_MASK)
+//#define CV_MAKETYPE(depth,cn) (CV_MAT_DEPTH(depth) + (((cn)-1) << CV_CN_SHIFT))
+//#define CV_8U 0
+//#define CV_8UC3 CV_MAKETYPE(CV_8U,3)
+//#define CV_8UC1 CV_MAKETYPE(CV_8U,1)
+//#define CV_8UC4 CV_MAKETYPE(CV_8U,4)
 
 using namespace cv;
 using namespace std;
@@ -121,6 +121,16 @@ int my_align, orientation;
 int DBG = 1;																// Debug Flag
 int key = 0;
 
+// QR code corners
+cv::Point2f top_left_corner;
+cv::Point2f top_right_corner;
+cv::Point2f bottom_left_corner;
+cv::Point2f bottom_right_corner;
+
+// QR code detection state variable
+bool location_is_started = false;
+bool is_located = false;
+
 int main(int argc, char** argv) {
     // Init GLUT window
     glutInit(&argc, argv);
@@ -184,6 +194,7 @@ int main(int argc, char** argv) {
 	cv::Mat buffer_cv = cv::Mat(image_sl.getHeight(), image_sl.getWidth(), CV_8UC4, image_sl.getPtr<sl::uchar1>(sl::MEM_CPU));
 	buffer_cv.copyTo(image_cv);
 
+	// Initialize some usefull matrices for the qr code detection
 	gray = Mat(image_cv.size(), CV_MAKETYPE(image_cv.depth(), 1));
 	edges = Mat(image_cv.size(), CV_MAKETYPE(image_cv.depth(), 1));
 	traces = Mat(image_cv.size(), CV_8UC3);
@@ -294,16 +305,18 @@ void run() {
 
 		////////////////////////////////////////////////////////////////////////////////// QR code \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 
-		qr_code_detection();
+		if (location_is_started) {
+			qr_code_detection();
+		}
 
-		///////////////////////////////////////////////////////////////////////////////////// \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+		////////////////////////////////////////////////////////////////////////////////////// \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 
         if (mapping_is_started) {
 
             // Compute elapse time since the last call of sl::Camera::requestMeshAsync()
             auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - t_last).count();
             // Ask for a mesh update if 500ms have spend since last request
-            if (duration > 500) {
+            if (duration > 500 && !location_is_started) {
                 zed.requestMeshAsync();
                 t_last = std::chrono::high_resolution_clock::now();
             }
@@ -487,7 +500,7 @@ void drawGL() {
 
 #if USE_CHUNKS
         for (int c = 0; c < mesh_object.size(); c++)
-            mesh_object[c].draw(GL_TRIANGLES);
+			mesh_object[c].draw(GL_TRIANGLES);
 #else
         mesh_object[0].draw(GL_TRIANGLES);
 #endif
@@ -519,7 +532,16 @@ void drawGL() {
         printGL(-0.99f, 0.9f, "Press Space Bar to activate Spatial Mapping.");
 	else {
 		printGL(-0.99f, 0.9f, "Press Space Bar to stop spatial mapping.");
-		printGL(-0.99f, 0.7f, "Press C to grab the QR code.");
+		if (mapping_is_started && !location_is_started) {
+			printGL(-0.99f, 0.7f, "Press C to locate the QR code.");
+		}
+		else if (mapping_is_started && location_is_started && !is_located) {
+			printGL(-0.99f, 0.7f, "Looking for the QR code to locate ...");
+		}
+		else if (mapping_is_started && !location_is_started && is_located) {
+			printGL(-0.99f, 0.7f, "QR code located ! (Coordinates stored into coordinates.txt)"); 
+			printGL(-0.99f, 0.6f, "Press C to locate another QR code.");
+		}
 	}
 
     std::string positional_tracking_state_str("POSITIONAL TRACKING STATE : ");
@@ -564,6 +586,10 @@ void keyPressedCallback(unsigned char c, int x, int y) {
         case 'q':
         glutLeaveMainLoop(); // End the process	
         break;
+		case 'c':
+			if (mapping_is_started)
+				location_is_started = true; // User press 'c' and spatial mapping is started 
+		break;
         default:
         break;
     }
@@ -824,7 +850,7 @@ void qr_code_detection() {
 
 	mark = 0;								// Reset all detected marker count for this frame
 
-											// Get Moments for all Contours and the mass centers
+	// Get Moments for all Contours and the mass centers
 	vector<Moments> mu(contours.size());
 	vector<Point2f> mc(contours.size());
 
@@ -894,7 +920,7 @@ void qr_code_detection() {
 			outlier = A;  median1 = B; median2 = C;
 		}
 
-		top = outlier;							// The obvious choice
+		top = outlier;						// The obvious choice
 
 		dist = cv_lineEquation(mc[median1], mc[median2], mc[outlier]);	// Get the Perpendicular distance of the outlier from the longest side			
 		slope = cv_lineSlope(mc[median1], mc[median2], my_align);		// Also calculate the slope of the longest side
@@ -902,7 +928,7 @@ void qr_code_detection() {
 																		// Now that we have the orientation of the line formed median1 & median2 and we also have the position of the outlier w.r.t. the line
 																		// Determine the 'right' and 'bottom' markers
 
-		if (align == 0)
+		if (my_align == 0)
 		{
 			bottom = median1;
 			my_right = median2;
@@ -939,6 +965,10 @@ void qr_code_detection() {
 
 		if (top < contours.size() && my_right < contours.size() && bottom < contours.size() && contourArea(contours[top]) > 10 && contourArea(contours[my_right]) > 10 && contourArea(contours[bottom]) > 10)
 		{
+			/*printf("%d \n", top);
+			printf("%d \n", my_right);
+			printf("%d \n", bottom);
+			printf("%d \n", contours.size());*/
 
 			vector<Point2f> L, M, O, tempL, tempM, tempO;
 			Point2f N;
@@ -958,7 +988,6 @@ void qr_code_detection() {
 
 			int iflag = getIntersectionPoint(M[1], M[2], O[3], O[2], N);
 
-
 			src.push_back(L[0]);
 			src.push_back(M[1]);
 			src.push_back(N);
@@ -968,6 +997,7 @@ void qr_code_detection() {
 			dst.push_back(Point2f(qr.cols, 0));
 			dst.push_back(Point2f(qr.cols, qr.rows));
 			dst.push_back(Point2f(0, qr.rows));
+
 
 			if (src.size() == 4 && dst.size() == 4)			// Failsafe for WarpMatrix Calculation to have only 4 Points with src and dst
 			{
@@ -980,6 +1010,22 @@ void qr_code_detection() {
 
 				//threshold(qr_gray, qr_thres, 0, 255, CV_THRESH_OTSU);
 				//for( int d=0 ; d < 4 ; d++){	src.pop_back(); dst.pop_back(); }
+			}
+
+			if (location_is_started) {
+				top_left_corner = L[0];
+				top_right_corner = M[1];
+				bottom_left_corner = O[2];
+				bottom_right_corner = N;
+
+				Point2f center = (top_left_corner + top_right_corner + bottom_left_corner + bottom_right_corner) / 4;
+				Point2f direction = (top_left_corner + top_right_corner) / 2;
+
+				printf("%f, %f\n", center.x, center.y);
+				printf("%f, %f\n", direction.x, direction.y);
+
+				location_is_started = false;
+				is_located = true;
 			}
 
 			//Draw contours on the image
@@ -997,7 +1043,7 @@ void qr_code_detection() {
 				else if (slope < -5)
 					circle(traces, Point(10, 20), 5, Scalar(255, 255, 255), -1, 8, 0);
 
-				// Draw contours on Trace image for analysis	
+				// Draw contours on Trace image for analysis (squares at the 3 corners)
 				drawContours(traces, contours, top, Scalar(255, 0, 100), 1, 8, hierarchy, 0);
 				drawContours(traces, contours, my_right, Scalar(255, 0, 100), 1, 8, hierarchy, 0);
 				drawContours(traces, contours, bottom, Scalar(255, 0, 100), 1, 8, hierarchy, 0);
@@ -1053,11 +1099,7 @@ void qr_code_detection() {
 	}
 
 	imshow("Image", image_cv);
-
-	if (!traces.empty()) {
-		imshow("Traces", traces);
-	}
-
+	imshow("Traces", traces);
 	imshow("QR code", qr_thres);
 
 	key = waitKey(1);	// OPENCV: wait for 1ms before accessing next frame
