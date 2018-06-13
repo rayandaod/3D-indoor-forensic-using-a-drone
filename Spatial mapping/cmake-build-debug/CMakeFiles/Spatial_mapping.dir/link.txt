@@ -1,0 +1,1 @@
+/Library/Developer/CommandLineTools/usr/bin/c++   -g -Wl,-search_paths_first -Wl,-headerpad_max_install_names  CMakeFiles/Spatial_mapping.dir/src/GLObject.cpp.o CMakeFiles/Spatial_mapping.dir/src/main.cpp.o CMakeFiles/Spatial_mapping.dir/src/Shader.cpp.o  -o Spatial_mapping 
