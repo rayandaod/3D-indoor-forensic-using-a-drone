@@ -20,19 +20,19 @@
 #include <iostream>
 #include <cmath>
 
-//// Definitions due to some bugs in VS
-//#define  GLUT_DOUBLE 0x0002
-//#define  GLUT_RGBA 0x0000
-//
-//#define CV_CN_SHIFT 3
-//#define CV_DEPTH_MAX (1 << CV_CN_SHIFT)
-//#define CV_MAT_DEPTH_MASK (CV_DEPTH_MAX - 1)
-//#define CV_MAT_DEPTH(flags) ((flags) & CV_MAT_DEPTH_MASK)
-//#define CV_MAKETYPE(depth,cn) (CV_MAT_DEPTH(depth) + (((cn)-1) << CV_CN_SHIFT))
-//#define CV_8U 0
-//#define CV_8UC3 CV_MAKETYPE(CV_8U,3)
-//#define CV_8UC1 CV_MAKETYPE(CV_8U,1)
-//#define CV_8UC4 CV_MAKETYPE(CV_8U,4)
+// Definitions due to some bugs in VS
+#define  GLUT_DOUBLE 0x0002
+#define  GLUT_RGBA 0x0000
+
+#define CV_CN_SHIFT 3
+#define CV_DEPTH_MAX (1 << CV_CN_SHIFT)
+#define CV_MAT_DEPTH_MASK (CV_DEPTH_MAX - 1)
+#define CV_MAT_DEPTH(flags) ((flags) & CV_MAT_DEPTH_MASK)
+#define CV_MAKETYPE(depth,cn) (CV_MAT_DEPTH(depth) + (((cn)-1) << CV_CN_SHIFT))
+#define CV_8U 0
+#define CV_8UC3 CV_MAKETYPE(CV_8U,3)
+#define CV_8UC1 CV_MAKETYPE(CV_8U,1)
+#define CV_8UC4 CV_MAKETYPE(CV_8U,4)
 
 using namespace cv;
 using namespace std;
@@ -88,13 +88,19 @@ GLuint quad_vb;																//buffer for vertices/coords for image
 int wWnd = 1280;
 int hWnd = 720;
 
+// Tracking status
+bool tracking_is_started = false;
+
 // Spatial Mapping status
 bool mapping_is_started = false;
 std::chrono::high_resolution_clock::time_point t_last;
 
+int main(int argc, char ** argv);
+
 //// Sample functions
 void close();
 void run();
+void startTracking();
 void startMapping();
 void stopMapping();
 void keyPressedCallback(unsigned char c, int x, int y);
@@ -121,15 +127,12 @@ int my_align, orientation;
 int DBG = 1;																// Debug Flag
 int key = 0;
 
-// QR code corners
-cv::Point2f top_left_corner;
-cv::Point2f top_right_corner;
-cv::Point2f bottom_left_corner;
-cv::Point2f bottom_right_corner;
-
 // QR code detection state variable
 bool location_is_started = false;
 bool is_located = false;
+
+sl::RuntimeParameters runtime_parameters;
+
 
 int main(int argc, char** argv) {
     // Init GLUT window
@@ -141,8 +144,13 @@ int main(int argc, char** argv) {
     if (argc > 1) parameters.svo_input_filename = argv[1];
 
     parameters.depth_mode = sl::DEPTH_MODE_QUALITY;							// Use QUALITY depth mode to improve mapping results
-    parameters.coordinate_units = sl::UNIT_METER;
+    parameters.coordinate_units = sl::UNIT_METER;	
     parameters.coordinate_system = sl::COORDINATE_SYSTEM_RIGHT_HANDED_Y_UP; // OpenGL coordinates system
+	parameters.sdk_verbose = false;
+
+	// Setup runtime parameters
+	//runtime_parameters.sensing_mode = sl::SENSING_MODE_STANDARD;
+	runtime_parameters.measure3D_reference_frame = sl::REFERENCE_FRAME_WORLD;
 
     // Open the ZED
     sl::ERROR_CODE err = zed.open(parameters);
@@ -219,21 +227,31 @@ void close() {
 }
 
 /**
+Starts the tracking process
+**/
+
+void startTracking() {
+	// clear previously used objects
+	mesh.clear();
+	mesh_object.clear();
+
+#if !USE_CHUNKS
+	// Create only one object that will contain the full mesh.
+	// Otherwise, different MeshObject will be created for each chunk when needed
+	mesh_object.emplace_back();
+#endif
+
+	// Enable positional tracking before starting spatial mapping
+	zed.enableTracking();
+	std::cout << "** Tracking is started ... **" << std::endl;
+
+	tracking_is_started = true;
+}
+
+/**
 Start the spatial mapping process
 **/
 void startMapping() {
-    // clear previously used objects
-    mesh.clear();
-    mesh_object.clear();
-
-#if !USE_CHUNKS
-    // Create only one object that will contain the full mesh.
-    // Otherwise, different MeshObject will be created for each chunk when needed
-    mesh_object.emplace_back();
-#endif
-
-    // Enable positional tracking before starting spatial mapping
-    zed.enableTracking();
     // Enable spatial mapping
     zed.enableSpatialMapping(spatial_mapping_params);
 
@@ -289,7 +307,7 @@ Update the mesh and draw image and wireframe using OpenGL
 **/
 void run() {
 
-    if (zed.grab() == sl::SUCCESS) {
+    if (zed.grab(runtime_parameters) == sl::SUCCESS) {
         // Retrieve image in GPU memory
         zed.retrieveImage(left_image, sl::VIEW_LEFT, sl::MEM_GPU);
 
@@ -577,11 +595,14 @@ This function handles keyboard events (especially space bar to start the mapping
 **/
 void keyPressedCallback(unsigned char c, int x, int y) {
     switch (c) {
+		case 't':
+			startTracking();
+		break;
         case 32: // Space bar id	
-        if (!mapping_is_started) // User press the space bar and spatial mapping is not started 
-            startMapping();
-        else // User press the space bar and spatial mapping is started 
-            stopMapping();
+			if (tracking_is_started && !mapping_is_started)
+				startMapping();
+			else
+			stopMapping();
         break;
         case 'q':
         glutLeaveMainLoop(); // End the process	
@@ -965,10 +986,6 @@ void qr_code_detection() {
 
 		if (top < contours.size() && my_right < contours.size() && bottom < contours.size() && contourArea(contours[top]) > 10 && contourArea(contours[my_right]) > 10 && contourArea(contours[bottom]) > 10)
 		{
-			/*printf("%d \n", top);
-			printf("%d \n", my_right);
-			printf("%d \n", bottom);
-			printf("%d \n", contours.size());*/
 
 			vector<Point2f> L, M, O, tempL, tempM, tempO;
 			Point2f N;
@@ -1013,19 +1030,44 @@ void qr_code_detection() {
 			}
 
 			if (location_is_started) {
-				top_left_corner = L[0];
-				top_right_corner = M[1];
-				bottom_left_corner = O[2];
-				bottom_right_corner = N;
 
-				Point2f center = (top_left_corner + top_right_corner + bottom_left_corner + bottom_right_corner) / 4;
-				Point2f direction = (top_left_corner + top_right_corner) / 2;
+				//printf("%f, %f\n", L[0].x, L[0].y);
+
+				Point2f center_tmp = (L[0] + M[1] + O[2] + N) / 4;
+				Point2f direction_tmp = (L[0] + M[1]) / 2;
+
+				Point2f center = Point2f(floor(center_tmp.x), floor(center_tmp.y));
+				Point2f direction = Point2f(floor(direction_tmp.x), floor(direction_tmp.y));
+
+				circle(traces, center, 2, Scalar(255, 255, 0), -1, 8, 0);
+				circle(traces, direction, 2, Scalar(255, 255, 0), -1, 8, 0);
 
 				printf("%f, %f\n", center.x, center.y);
 				printf("%f, %f\n", direction.x, direction.y);
 
-				location_is_started = false;
-				is_located = true;
+				sl::Mat point_cloud;
+				sl::ERROR_CODE err = zed.retrieveMeasure(point_cloud, sl::MEASURE_XYZ, sl::MEM_CPU, 0, 0);
+				if (err != sl::ERROR_CODE::SUCCESS) {
+					std::cout << sl::toString(err) << std::endl;
+				}
+
+				sl::float4 point_cloud_value;
+				err = point_cloud.getValue(center.x, center.y, &point_cloud_value);
+				
+				if (err != sl::ERROR_CODE::SUCCESS) {
+					std::cout << sl::toString(err) << std::endl;
+				}
+
+				size_t h = point_cloud.getHeight();
+				size_t w = point_cloud.getWidth();
+
+				printf("height, width = %zu, %zu\n", h, w);
+				printf("x = %f\n", point_cloud_value.x);
+				printf("y = %f\n", point_cloud_value.y);
+				printf("z = %f\n\n", point_cloud_value.z);
+
+				//location_is_started = false;
+				//is_located = true;
 			}
 
 			//Draw contours on the image
@@ -1099,8 +1141,8 @@ void qr_code_detection() {
 	}
 
 	imshow("Image", image_cv);
-	imshow("Traces", traces);
-	imshow("QR code", qr_thres);
+	//imshow("Traces", traces);
+	//imshow("QR code", qr_thres);
 
 	key = waitKey(1);	// OPENCV: wait for 1ms before accessing next frame
 }
