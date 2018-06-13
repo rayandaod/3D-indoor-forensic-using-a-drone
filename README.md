@@ -1,5 +1,5 @@
-Bachelor project - Spring 2018
-Rayan DAOD NATHOO - SCBA6
+#Bachelor project - Spring 2018
+#Rayan DAOD NATHOO - SCBA6
 
 Drones exist since World War II and have not stopped evolving since then.
 Nowadays, multiple types of drones are accessible and include sensors and features allowing them to execute complex tasks to facilitate our life, and to make it better.
