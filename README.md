@@ -1,4 +1,4 @@
-# Bachelor project - EPFL - 2018
+# Bachelor project
 
 EPFL | Media & Design Lab | Master Semester project 
 
