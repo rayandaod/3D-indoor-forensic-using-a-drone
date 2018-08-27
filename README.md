@@ -1,7 +1,9 @@
 # Bachelor project - EPFL - 2018
 
 EPFL | Media & Design Lab | Master Semester project 
+
 Immanuel Koh (Supervisor) 
+
 Jeffrey Huang (Professor)
 
 Drones exist since World War II and have not stopped evolving since then.
